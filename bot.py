@@ -39,38 +39,62 @@ DB_PATH = "data.db"
 # --- Reply-кнопки и подменю ---
 BTN_BACK = "⬅️ Назад"
 
-BTN_CREATE_CONFIRM = "Добавить в реестр"
-BTN_CANCEL         = "Отмена"
+BTN_CREATE_CONFIRM = "✅ Добавить в реестр"
+BTN_CANCEL         = "❌ Отмена"
 
 # Кнопки главного меню
-BTN_INFO  = "Информация"
-BTN_ADD   = "Добавление"
-BTN_EDIT  = "Изменение"
-BTN_DELETE= "Удаление"
+BTN_INFO  = "ℹ️ Информация"
+BTN_ADD   = "➕ Добавление"
+BTN_EDIT  = "✏️ Изменение"
+BTN_DELETE= "🗑️ Удаление"
 
 # Telegram может присылать текст кнопок с эмодзи, если пользователь
 # нажал старую раскладку или скопировал подписи. Приводим такие варианты
 # к каноничным именам, чтобы сравнения вида `text == BTN_INFO` продолжали
 # работать.
-BTN_ALIASES = {
-    "ℹ️ Информация": BTN_INFO,
-    "➕ Добавление": BTN_ADD,
-    "✏️ Изменение": BTN_EDIT,
-    "🗑️ Удаление": BTN_DELETE,
-}
-
 # Подменю «Информация»
-BTN_INFO_LAST10 = "Ближайшие 10"
-BTN_INFO_LAST30 = "Ближайшие 30"
-BTN_INFO_ALL = "Список всех"
+BTN_INFO_LAST10 = "🔟 Ближайшие 10"
+BTN_INFO_LAST30 = "📆 Ближайшие 30"
+BTN_INFO_ALL = "📋 Список всех"
 
 # Подменю «Добавление»
-BTN_ADD_SIGN = "Добавить подпись"
-BTN_ADD_REG  = "Добавить юр/фл в реестр"
+BTN_ADD_SIGN = "🖊️ Добавить подпись"
+BTN_ADD_REG  = "🆕 Добавить юр/фл в реестр"
 
 # Выбор типа субъекта
-BTN_KIND_ORG    = "Юр. лицо"
-BTN_KIND_PERSON = "Физ. лицо"
+BTN_KIND_ORG    = "🏢 Юр. лицо"
+BTN_KIND_PERSON = "👤 Физ. лицо"
+
+# Подменю «Удаление»
+BTN_DELETE_SIGN = "🧾 Удалить запись"
+BTN_DELETE_REG  = "🚮 Удалить из реестра"
+
+BTN_ALIASES = {
+    "Назад": BTN_BACK,
+    "Информация": BTN_INFO,
+    "Добавление": BTN_ADD,
+    "Изменение": BTN_EDIT,
+    "Удаление": BTN_DELETE,
+    "Ближайшие 10": BTN_INFO_LAST10,
+    "Ближайшие 30": BTN_INFO_LAST30,
+    "Список всех": BTN_INFO_ALL,
+    "Добавить подпись": BTN_ADD_SIGN,
+    "Добавить юр/фл в реестр": BTN_ADD_REG,
+    "Юр. лицо": BTN_KIND_ORG,
+    "Физ. лицо": BTN_KIND_PERSON,
+    "Удалить подпись": BTN_DELETE_SIGN,
+    "Удалить запись": BTN_DELETE_SIGN,
+    "🧾 Удалить запись": BTN_DELETE_SIGN,
+    "🧾 Удалить подпись": BTN_DELETE_SIGN,
+    "🗑️ Удалить подпись": BTN_DELETE_SIGN,
+    "🗑️ Удалить запись": BTN_DELETE_SIGN,
+    "Удалить из реестра": BTN_DELETE_REG,
+    "🗑️ Удалить из реестра": BTN_DELETE_REG,
+    "🚮 Удалить запись": BTN_DELETE_SIGN,
+    "🚮 Удалить из реестра": BTN_DELETE_REG,
+    "Добавить в реестр": BTN_CREATE_CONFIRM,
+    "Отмена": BTN_CANCEL,
+}
 
 # Информация
 CB_INFO_LAST10 = "info:last10"
@@ -109,8 +133,11 @@ RESERVED_BTNS = {
     BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BACK,
     BTN_INFO_LAST10, BTN_INFO_LAST30, BTN_INFO_ALL,
     BTN_ADD_SIGN, BTN_ADD_REG, BTN_KIND_ORG, BTN_KIND_PERSON,
+    BTN_DELETE_SIGN, BTN_DELETE_REG,
     BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
+
+MENU_BTNS = set(RESERVED_BTNS)
 
 # ====== HELPERS ======
 
@@ -154,6 +181,15 @@ def create_confirm_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_CREATE_CONFIRM), KeyboardButton(BTN_CANCEL)],
+            [KeyboardButton(BTN_BACK)],
+        ], resize_keyboard=True
+    )
+
+def delete_menu_kbd() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_DELETE_SIGN)],
+            [KeyboardButton(BTN_DELETE_REG)],
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
@@ -426,16 +462,21 @@ async def upd_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def del_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
-    context.user_data["mode"] = "del"
-    await update.message.reply_text("Удаление записи подписи.\n"
-                                    "Введите первые буквы названия — пришлю список.")
+    context.user_data["menu"] = "delete"
+    await update.message.reply_text(
+        "Что удаляем?",
+        reply_markup=delete_menu_kbd()
+    )
 
 async def regdel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
     context.user_data["mode"] = "regdel"
-    await update.message.reply_text("Удаление из реестра (и связанных записей).\n"
-                                    "Введите первые буквы названия — пришлю список.")
+    await update.message.reply_text(
+        "Удаление из реестра (и связанных записей).\n"
+        "Введите первые буквы названия — пришлю список.",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
+    )
 
 async def add_pick_kind(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str):
     context.user_data["kind"] = kind
@@ -500,6 +541,28 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["add_action"] = "reg"
             context.user_data["menu"] = "add_pick_kind"
             await update.message.reply_text("Кого добавить в реестр?", reply_markup=kind_menu_kbd())
+            return
+        return
+
+    # --- Подменю «Удаление» ---
+    if context.user_data.get("menu") == "delete":
+        if text == BTN_DELETE_SIGN:
+            context.user_data.clear()
+            context.user_data["mode"] = "del"
+            await update.message.reply_text(
+                "Удаление записи подписи.\n"
+                "Введите первые буквы названия — пришлю список.",
+                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
+            )
+            return
+        if text == BTN_DELETE_REG:
+            context.user_data.clear()
+            context.user_data["mode"] = "regdel"
+            await update.message.reply_text(
+                "Удаление из реестра (и связанных записей).\n"
+                "Введите первые буквы названия — пришлю список.",
+                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
+            )
             return
         return
 
@@ -683,6 +746,7 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Сначала получаем msg
     msg = update.message.text.strip() if update.message and update.message.text else ""
+    msg = BTN_ALIASES.get(msg, msg)
 
     # Глобальный "Назад" — всегда в главное меню
     if msg == BTN_BACK:
