@@ -89,9 +89,6 @@ CB_REGDEL_PICK_PAGE = "regdel:pick_page"
 CB_REGDEL_CONFIRM = "regdel:confirm"
 
 
-# безопасный «невидимый» символ, который Телеграм принимает как непустой текст
-SAFE_EMPTY = "\u2063"  # Invisible Separator
-
 # набор всех «зарезервированных» названий кнопок-реплаев,
 # которые нельзя сохранять как примечание
 RESERVED_BTNS = {
@@ -1001,8 +998,8 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("DBG CB error: %s", e)
 
 async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Тихо возвращает пользователя в главное меню, без лишнего текста."""
-    await context.bot.send_message(chat_id, SAFE_EMPTY, reply_markup=main_menu_kbd())
+    """Возвращает пользователя в главное меню и очищает состояние."""
+    await context.bot.send_message(chat_id, "Главное меню", reply_markup=main_menu_kbd())
     context.user_data.clear()
 
 
