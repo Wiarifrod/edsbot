@@ -39,14 +39,12 @@ DB_PATH = "data.db"
 # --- Reply-кнопки и подменю ---
 BTN_BACK = "⬅️ Назад"
 
-BTN_CREATE_CONFIRM = "✅ Добавить в реестр"
-BTN_CANCEL         = "❌ Отмена"
-
 # Кнопки главного меню
-BTN_INFO  = "ℹ️ Информация"
-BTN_ADD   = "➕ Добавление"
-BTN_EDIT  = "✏️ Изменение"
-BTN_DELETE= "🗑️ Удаление"
+BTN_INFO   = "ℹ️ Информация"
+BTN_ADD    = "➕ Добавление"
+BTN_EDIT   = "✏️ Изменение"
+BTN_DELETE = "🗑️ Удаление"
+BTN_BROWSE = "📂 База подписей"
 
 # Telegram может присылать текст кнопок с эмодзи, если пользователь
 # нажал старую раскладку или скопировал подписи. Приводим такие варианты
@@ -75,6 +73,7 @@ BTN_ALIASES = {
     "Добавление": BTN_ADD,
     "Изменение": BTN_EDIT,
     "Удаление": BTN_DELETE,
+    "База подписей": BTN_BROWSE,
     "Ближайшие 10": BTN_INFO_LAST10,
     "Ближайшие 30": BTN_INFO_LAST30,
     "Список всех": BTN_INFO_ALL,
@@ -92,8 +91,6 @@ BTN_ALIASES = {
     "🗑️ Удалить из реестра": BTN_DELETE_REG,
     "🚮 Удалить запись": BTN_DELETE_SIGN,
     "🚮 Удалить из реестра": BTN_DELETE_REG,
-    "Добавить в реестр": BTN_CREATE_CONFIRM,
-    "Отмена": BTN_CANCEL,
 }
 
 # Информация
@@ -101,27 +98,18 @@ CB_INFO_LAST10 = "info:last10"
 CB_INFO_ALL = "info:all"
 
 # Добавление
-CB_ADD_START = "add:start"
-CB_ADD_KIND_ORG = "add:kind:org"
-CB_ADD_KIND_PERSON = "add:kind:person"
-CB_ADD_NEW_ENTITY = "add:new_entity"
-CB_ADD_PICK_PAGE = "add:pick_page"
 CB_ADD_SKIP_NOTE = "add:skip_note"
 
 # Изменение
-CB_UPD_START = "upd:start"
-CB_UPD_PICK_PAGE = "upd:pick_page"
 CB_UPD_SKIP_NOTE = "upd:skip_note"
 
 # Удаление
-CB_DEL_START = "del:start"
-CB_DEL_PICK_PAGE = "del:pick_page"
 CB_DEL_CONFIRM = "del:confirm"
 
 # Удаление из реестра (второй пункт третьего блока)
-CB_REGDEL_START = "regdel:start"
-CB_REGDEL_PICK_PAGE = "regdel:pick_page"
 CB_REGDEL_CONFIRM = "regdel:confirm"
+
+TREE_CB_PREFIX = "tree|"
 
 
 # безопасный «невидимый» символ, который Телеграм принимает как непустой текст
@@ -130,14 +118,28 @@ SAFE_EMPTY = "\u2063"  # Invisible Separator
 # набор всех «зарезервированных» названий кнопок-реплаев,
 # которые нельзя сохранять как примечание
 RESERVED_BTNS = {
-    BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BACK,
+    BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BROWSE, BTN_BACK,
     BTN_INFO_LAST10, BTN_INFO_LAST30, BTN_INFO_ALL,
     BTN_ADD_SIGN, BTN_ADD_REG, BTN_KIND_ORG, BTN_KIND_PERSON,
     BTN_DELETE_SIGN, BTN_DELETE_REG,
-    BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
 
 MENU_BTNS = set(RESERVED_BTNS)
+
+# Базовая иерархия организаций (может расширяться в будущем)
+ORG_STRUCTURE: dict[str, dict] = {
+    "Администрация района": {
+        "Нагорское поселение": {},
+        "Чеглаковское поселение": {},
+    },
+    "Управление образования": {
+        "Школа с. Мулино": {},
+    },
+    "Управление культуры": {
+        "РЦНТ": {},
+        "ЦБС": {},
+    },
+}
 
 # ====== HELPERS ======
 
@@ -147,6 +149,7 @@ def main_menu_kbd() -> ReplyKeyboardMarkup:
             [KeyboardButton(BTN_INFO)],
             [KeyboardButton(BTN_ADD), KeyboardButton(BTN_EDIT)],
             [KeyboardButton(BTN_DELETE)],
+            [KeyboardButton(BTN_BROWSE)],
         ],
         resize_keyboard=True
     )
@@ -177,14 +180,6 @@ def kind_menu_kbd() -> ReplyKeyboardMarkup:
         ], resize_keyboard=True
     )
 
-def create_confirm_kbd() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(BTN_CREATE_CONFIRM), KeyboardButton(BTN_CANCEL)],
-            [KeyboardButton(BTN_BACK)],
-        ], resize_keyboard=True
-    )
-
 def delete_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
@@ -193,10 +188,6 @@ def delete_menu_kbd() -> ReplyKeyboardMarkup:
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
-
-def chunk(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i+n]
 
 def safe_md(text: str) -> str:
     return text.replace("_", "\\_").replace("*", "\\*")
@@ -223,8 +214,55 @@ def fmt_signature_row(r) -> str:
         line += f"\n  Примечание: {safe_md(note)}"
     return line
 
+async def ensure_group(db, name: str, parent_id: int | None) -> int:
+    async with db.execute("SELECT id, parent_id FROM grp WHERE name=?", (name,)) as cur:
+        row = await cur.fetchone()
+    if row:
+        gid = row["id"]
+        if row["parent_id"] != parent_id:
+            await db.execute("UPDATE grp SET parent_id=? WHERE id=?", (parent_id, gid))
+        return gid
+    cur = await db.execute("INSERT INTO grp(name, parent_id) VALUES (?,?)", (name, parent_id))
+    return cur.lastrowid
+
+async def ensure_org_entity(db, group_id: int, name: str) -> int:
+    async with db.execute("SELECT id, kind, group_id FROM entity WHERE name=?", (name,)) as cur:
+        row = await cur.fetchone()
+    if row:
+        eid = row["id"]
+        if row["kind"] != "org":
+            await db.execute("UPDATE entity SET kind='org' WHERE id=?", (eid,))
+        if row["group_id"] != group_id:
+            await db.execute("UPDATE entity SET group_id=? WHERE id=?", (group_id, eid))
+        return eid
+    try:
+        cur = await db.execute(
+            "INSERT INTO entity(name, kind, group_id) VALUES (?,?,?)",
+            (name, "org", group_id)
+        )
+        return cur.lastrowid
+    except aiosqlite.IntegrityError:
+        async with db.execute("SELECT id FROM entity WHERE name=?", (name,)) as cur2:
+            row2 = await cur2.fetchone()
+        if not row2:
+            raise
+        eid = row2["id"]
+        await db.execute(
+            "UPDATE entity SET kind='org', group_id=? WHERE id=?",
+            (group_id, eid)
+        )
+        return eid
+
+async def ensure_org_structure(db, structure: dict[str, dict], parent_id: int | None = None):
+    for name, children in structure.items():
+        gid = await ensure_group(db, name, parent_id)
+        await ensure_org_entity(db, gid, name)
+        if children:
+            await ensure_org_structure(db, children, gid)
+
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA foreign_keys = ON;")
         await db.execute("""
         CREATE TABLE IF NOT EXISTS subscriber (
@@ -255,6 +293,7 @@ async def init_db():
             parent_id INTEGER NULL,
             FOREIGN KEY(parent_id) REFERENCES grp(id) ON DELETE SET NULL
         );""")
+        await ensure_org_structure(db, ORG_STRUCTURE)
         await db.commit()
 
 async def is_allowed(user_id: int) -> bool:
@@ -300,17 +339,364 @@ async def ensure_subscriber(chat_id: int):
         await db.execute("INSERT OR IGNORE INTO subscriber(chat_id) VALUES (?)", (chat_id,))
         await db.commit()
 
-async def count_entities_by_prefix(kind: str | None, prefix: str) -> int:
+async def get_group(group_id: int) -> aiosqlite.Row | None:
     async with aiosqlite.connect(DB_PATH) as db:
-        args = [prefix + "%"]
-        where = "WHERE lower(name) LIKE lower(?)"
-        if kind:
-            where += " AND kind=?"
-            args.append(kind)
-        async with db.execute(f"SELECT COUNT(*) FROM entity {where};", args) as cur:
-            (cnt,) = await cur.fetchone()
-    return int(cnt)
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, name, parent_id FROM grp WHERE id=?", (group_id,)) as cur:
+            return await cur.fetchone()
 
+async def list_groups(parent_id: int | None) -> list[aiosqlite.Row]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if parent_id is None:
+            sql = "SELECT id, name FROM grp WHERE parent_id IS NULL ORDER BY name"
+            args = ()
+        else:
+            sql = "SELECT id, name FROM grp WHERE parent_id=? ORDER BY name"
+            args = (parent_id,)
+        async with db.execute(sql, args) as cur:
+            return await cur.fetchall()
+
+async def get_group_legal_entity(group_id: int) -> aiosqlite.Row | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, name, kind FROM entity WHERE group_id=? AND kind='org'",
+            (group_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+async def list_group_persons(group_id: int) -> list[aiosqlite.Row]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, name, kind FROM entity WHERE group_id=? AND kind='person' ORDER BY lower(name)",
+            (group_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+async def get_entity_with_signature(entity_id: int) -> aiosqlite.Row | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT e.id, e.name, e.kind, s.expiry, s.note
+            FROM entity e
+            LEFT JOIN signature s ON s.entity_id=e.id AND s.active=1
+            WHERE e.id=?
+            """,
+            (entity_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+async def list_persons_with_signatures(group_id: int) -> list[aiosqlite.Row]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT e.id, e.name, e.kind, s.expiry, s.note
+            FROM entity e
+            LEFT JOIN signature s ON s.entity_id=e.id AND s.active=1
+            WHERE e.group_id=? AND e.kind='person'
+            ORDER BY lower(e.name)
+            """,
+            (group_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+# ---- TREE NAVIGATION ----
+
+def _tree_cb(mode: str, action: str, payload: str = "_") -> str:
+    return f"{TREE_CB_PREFIX}{mode}|{action}|{payload}"
+
+
+def _tree_state(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
+    return context.user_data.get("tree")
+
+
+def _tree_current(state: dict) -> tuple[int, str] | None:
+    path: list[tuple[int, str]] = state.get("path", [])
+    if not path:
+        return None
+    return path[-1]
+
+
+def _tree_path_text(state: dict) -> str:
+    path: list[tuple[int, str]] = state.get("path", [])
+    if not path:
+        return ""
+    return " / ".join(safe_md(name) for _, name in path)
+
+
+async def tree_start(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str):
+    state = {"mode": mode, "path": []}
+    if mode == "browse":
+        state["view"] = "groups"
+    context.user_data["tree"] = state
+    text, markup = await build_tree_view(state)
+    msg = await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+    state["message_id"] = msg.message_id
+    state["chat_id"] = msg.chat.id
+
+
+async def build_tree_view(state: dict) -> tuple[str, InlineKeyboardMarkup]:
+    mode = state.get("mode")
+    if mode == "browse":
+        return await _build_tree_view_browse(state)
+    return await _build_tree_view_picker(state)
+
+
+async def _build_tree_view_browse(state: dict) -> tuple[str, InlineKeyboardMarkup]:
+    path = state.get("path", [])
+    current = _tree_current(state)
+    group_id = current[0] if current else None
+    view = state.get("view", "groups")
+    if view not in {"groups", "employees", "legal"}:
+        view = "groups"
+        state["view"] = "groups"
+
+    buttons: list[list[InlineKeyboardButton]] = []
+    lines: list[str] = []
+
+    if not path:
+        lines.append("*База подписей*")
+    else:
+        lines.append(f"*{safe_md(current[1])}*")
+
+    if view == "groups":
+        if not path:
+            lines.append("Выберите организацию.")
+        else:
+            lines.append("Выберите действие или подразделение.")
+
+        children = await list_groups(group_id)
+        if group_id is not None:
+            legal = await get_group_legal_entity(group_id)
+            if legal:
+                buttons.append([
+                    InlineKeyboardButton("📄 Подпись юридического лица", _tree_cb("browse", "show", "legal"))
+                ])
+            buttons.append([
+                InlineKeyboardButton("👥 Сотрудники", _tree_cb("browse", "show", "employees"))
+            ])
+        for child in children:
+            buttons.append([
+                InlineKeyboardButton(f"🏢 {child['name']}", _tree_cb("browse", "enter", str(child["id"])))
+            ])
+        if path:
+            buttons.append([InlineKeyboardButton("⬅️ Назад", _tree_cb("browse", "up"))])
+        else:
+            buttons.append([InlineKeyboardButton("🏠 Главное меню", _tree_cb("browse", "exit"))])
+        return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+    if group_id is None:
+        state["view"] = "groups"
+        return await _build_tree_view_browse(state)
+
+    if view == "employees":
+        rows = await list_persons_with_signatures(group_id)
+        if rows:
+            lines.append("Сотрудники:")
+            for r in rows:
+                if r["expiry"]:
+                    lines.append(fmt_signature_row(r))
+                else:
+                    lines.append(f"[ФЛ] {safe_md(r['name'])} — подпись не заведена")
+        else:
+            lines.append("Сотрудников пока нет.")
+    elif view == "legal":
+        entity = await get_group_legal_entity(group_id)
+        if entity:
+            row = await get_entity_with_signature(entity["id"])
+            if row and row["expiry"]:
+                lines.append(fmt_signature_row(row))
+            else:
+                lines.append(f"[ЮЛ] {safe_md(entity['name'])} — подпись не заведена")
+        else:
+            lines.append("Для этой организации не заведено юридическое лицо.")
+
+    buttons.append([InlineKeyboardButton("⬅️ Назад", _tree_cb("browse", "show", "groups"))])
+    if not path:
+        buttons.append([InlineKeyboardButton("🏠 Главное меню", _tree_cb("browse", "exit"))])
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+async def _build_tree_view_picker(state: dict) -> tuple[str, InlineKeyboardMarkup]:
+    mode = state.get("mode")
+    path = state.get("path", [])
+    current = _tree_current(state)
+    group_id = current[0] if current else None
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    headers = {
+        "sign_add_org": "Добавление подписи юридического лица",
+        "sign_add_person": "Добавление подписи сотрудника",
+        "sign_update": "Изменение подписи",
+        "sign_delete": "Удаление подписи",
+        "reg_delete": "Удаление из реестра",
+        "reg_add_person": "Добавление сотрудника в реестр",
+    }
+    header = headers.get(mode, "Выбор организации")
+
+    lines = [f"*{safe_md(header)}*"]
+    if path:
+        lines.append(f"Текущая организация: {safe_md(current[1])}")
+    else:
+        lines.append("Выберите организацию.")
+
+    children = await list_groups(group_id)
+
+    if mode == "reg_add_person":
+        if current:
+            buttons.append([
+                InlineKeyboardButton(
+                    "➕ Добавить сотрудника сюда",
+                    _tree_cb(mode, "add", str(group_id))
+                )
+            ])
+        for child in children:
+            buttons.append([
+                InlineKeyboardButton(f"🏢 {child['name']}", _tree_cb(mode, "enter", str(child["id"])))
+            ])
+    else:
+        show_legal = mode in {"sign_add_org", "sign_update", "sign_delete", "reg_delete"}
+        show_persons = mode in {"sign_add_person", "sign_update", "sign_delete", "reg_delete"}
+
+        if current and show_legal:
+            legal = await get_group_legal_entity(group_id)
+            if legal:
+                label = f"🏢 {legal['name']} (ЮЛ)"
+                buttons.append([
+                    InlineKeyboardButton(label, _tree_cb(mode, "select", str(legal["id"])))
+                ])
+        if current and show_persons:
+            persons = await list_group_persons(group_id)
+            for person in persons:
+                label = f"👤 {person['name']}"
+                buttons.append([
+                    InlineKeyboardButton(label, _tree_cb(mode, "select", str(person["id"])))
+                ])
+        for child in children:
+            buttons.append([
+                InlineKeyboardButton(f"🏢 {child['name']}", _tree_cb(mode, "enter", str(child["id"])))
+            ])
+
+    if path:
+        buttons.append([InlineKeyboardButton("⬅️ Назад", _tree_cb(mode, "up"))])
+    buttons.append([InlineKeyboardButton("🏠 Главное меню", _tree_cb(mode, "exit"))])
+
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+async def tree_handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str, action: str, payload: str):
+    q = update.callback_query
+    await q.answer()
+    state = _tree_state(context)
+    if not state or state.get("mode") != mode:
+        state = {"mode": mode, "path": []}
+        if mode == "browse":
+            state["view"] = "groups"
+        context.user_data["tree"] = state
+
+    if action == "exit":
+        context.user_data.pop("tree", None)
+        await q.edit_message_text("Возврат в главное меню…")
+        await _go_main(context, q.message.chat.id)
+        return
+
+    if action == "up":
+        path: list[tuple[int, str]] = state.get("path", [])
+        if path:
+            path.pop()
+        if mode == "browse":
+            state["view"] = "groups"
+        text, markup = await build_tree_view(state)
+        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+        return
+
+    if action == "enter":
+        group_id = int(payload)
+        row = await get_group(group_id)
+        if not row:
+            await q.answer("Организация не найдена")
+            return
+        path: list[tuple[int, str]] = state.setdefault("path", [])
+        path.append((group_id, row["name"]))
+        if mode == "browse":
+            state["view"] = "groups"
+        text, markup = await build_tree_view(state)
+        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+        return
+
+    if mode == "browse" and action == "show":
+        state["view"] = payload
+        text, markup = await build_tree_view(state)
+        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+        return
+
+    if mode == "reg_add_person" and action == "add":
+        group_id = int(payload)
+        row = await get_group(group_id)
+        if not row:
+            await q.answer("Организация не найдена")
+            return
+        context.user_data["awaiting"] = "new_entity_name"
+        context.user_data["kind"] = "person"
+        context.user_data["add_action"] = "reg"
+        context.user_data["group_id"] = group_id
+        context.user_data.pop("tree", None)
+        await q.edit_message_text(
+            f"Введите полное имя сотрудника для организации «{safe_md(row['name'])}».",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    if action == "select":
+        entity_id = int(payload)
+        row = await get_entity_with_signature(entity_id)
+        if not row:
+            await q.answer("Запись не найдена")
+            return
+        context.user_data.pop("tree", None)
+        if mode == "sign_add_org":
+            context.user_data["entity_id"] = entity_id
+            context.user_data["entity_kind"] = "org"
+            context.user_data["flow"] = "add"
+            context.user_data["awaiting"] = "expiry"
+            await q.edit_message_text(
+                f"Выбрана организация: {safe_md(row['name'])}.\nВведите дату окончания подписи (например 31.12.2025).",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        if mode == "sign_add_person":
+            context.user_data["entity_id"] = entity_id
+            context.user_data["entity_kind"] = "person"
+            context.user_data["flow"] = "add"
+            context.user_data["awaiting"] = "expiry"
+            await q.edit_message_text(
+                f"Выбран сотрудник: {safe_md(row['name'])}.\nВведите дату окончания подписи (например 31.12.2025).",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        if mode == "sign_update":
+            context.user_data["entity_id"] = entity_id
+            context.user_data["entity_kind"] = row["kind"]
+            context.user_data["flow"] = "upd"
+            context.user_data["awaiting"] = "expiry"
+            await q.edit_message_text(
+                f"Выбрана запись: {safe_md(row['name'])}.\nВведите новую дату окончания подписи.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        if mode == "sign_delete":
+            await show_and_confirm_delete(q, entity_id)
+            return
+        if mode == "reg_delete":
+            await show_and_confirm_regdelete(q, entity_id)
+            return
+
+    await q.answer("Действие недоступно")
 
 # ====== HANDLERS ======
 
@@ -455,9 +841,7 @@ async def add_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upd_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
-    context.user_data["mode"] = "upd"
-    await update.message.reply_text("Введите первые буквы названия и отправьте сообщением.\n"
-                                    "Я пришлю список подходящих вариантов кнопками.")
+    await tree_start(update, context, "sign_update")
 
 async def del_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
@@ -471,28 +855,7 @@ async def del_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def regdel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
-    context.user_data["mode"] = "regdel"
-    await update.message.reply_text(
-        "Удаление из реестра (и связанных записей).\n"
-        "Введите первые буквы названия — пришлю список.",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-    )
-
-async def add_pick_kind(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str):
-    context.user_data["kind"] = kind
-    await update.effective_message.reply_text(
-        "Введите первые буквы названия (или полное имя) и отправьте.\n"
-        "Если в реестре нет — предложу создать."
-    )
-
-async def cb_add_kind(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed(update.effective_user.id): return
-    q = update.callback_query
-    await q.answer()
-    if q.data == CB_ADD_KIND_ORG:
-        await add_pick_kind(update, context, "org")
-    else:
-        await add_pick_kind(update, context, "person")
+    await tree_start(update, context, "reg_delete")
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting"):
@@ -500,7 +863,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id):
         return
 
-    # ВАЖНО: сначала получаем текст
     text = update.message.text.strip().replace("\u00a0", " ")
     text = BTN_ALIASES.get(text, text)
 
@@ -512,7 +874,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("menu") == "info":
         if text == BTN_BACK:
             context.user_data.pop("menu", None)
-            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
+            await _go_main(context, update.effective_chat.id)
             return
         if text == BTN_INFO_LAST10:
             await update.message.reply_text(await build_lastN_text(10), parse_mode=ParseMode.MARKDOWN)
@@ -523,14 +885,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == BTN_INFO_ALL:
             await update.message.reply_text(await build_all_text(), parse_mode=ParseMode.MARKDOWN)
             return
-        # неузнанный ввод в рамках меню — игнор
         return
 
-    # --- Подменю «Добавление» (ОТДЕЛЬНЫЙ блок, не внутри «Информация») ---
+    # --- Подменю «Добавление» ---
     if context.user_data.get("menu") == "add_menu":
         if text == BTN_BACK:
             context.user_data.clear()
-            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
+            await _go_main(context, update.effective_chat.id)
             return
         if text == BTN_ADD_SIGN:
             context.user_data["add_action"] = "sign"
@@ -546,23 +907,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Подменю «Удаление» ---
     if context.user_data.get("menu") == "delete":
+        if text == BTN_BACK:
+            context.user_data.clear()
+            await _go_main(context, update.effective_chat.id)
+            return
         if text == BTN_DELETE_SIGN:
             context.user_data.clear()
-            context.user_data["mode"] = "del"
-            await update.message.reply_text(
-                "Удаление записи подписи.\n"
-                "Введите первые буквы названия — пришлю список.",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
+            await tree_start(update, context, "sign_delete")
             return
         if text == BTN_DELETE_REG:
             context.user_data.clear()
-            context.user_data["mode"] = "regdel"
-            await update.message.reply_text(
-                "Удаление из реестра (и связанных записей).\n"
-                "Введите первые буквы названия — пришлю список.",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
+            await tree_start(update, context, "reg_delete")
             return
         return
 
@@ -573,170 +928,49 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Выберите вариант:", reply_markup=add_menu_kbd())
             return
         if text == BTN_KIND_ORG:
-            context.user_data["kind"] = "org"
+            kind = "org"
         elif text == BTN_KIND_PERSON:
-            context.user_data["kind"] = "person"
+            kind = "person"
         else:
             return
 
-        if context.user_data.get("add_action") == "sign":
-            context.user_data["mode"] = "add"
-            context.user_data["menu"] = "add_search"
-            await update.message.reply_text(
-                "Введите первые буквы/наименование субъекта. "
-                "Покажу совпадения, а если не найдётся — предложу добавить.",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
+        context.user_data["kind"] = kind
+        action = context.user_data.get("add_action")
+        context.user_data.pop("menu", None)
+
+        if action == "sign":
+            if kind == "org":
+                await tree_start(update, context, "sign_add_org")
+            else:
+                await tree_start(update, context, "sign_add_person")
             return
 
-        if context.user_data.get("add_action") == "reg":
-            context.user_data["awaiting"] = "new_entity_name"
-            context.user_data["menu"] = "add_reg_name"
-            await update.message.reply_text(
-                "Введите полное наименование для добавления в реестр.",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
+        if action == "reg":
+            if kind != "person":
+                await update.message.reply_text("Юридические лица добавляются через код администратора.")
+                return
+            context.user_data["add_action"] = "reg"
+            await tree_start(update, context, "reg_add_person")
             return
-
-    # --- Поиск по реестру / автодобавление (для «добавить подпись») ---
-    if context.user_data.get("menu") == "add_search" and context.user_data.get("mode") == "add":
-        if text == BTN_BACK:
-            context.user_data["menu"] = "add_pick_kind"
-            await update.message.reply_text("Кого добавляем?", reply_markup=kind_menu_kbd())
-            return
-
-        kind = context.user_data.get("kind")
-        prefix = text
-        context.user_data["prefix"] = prefix
-
-        cnt = await count_entities_by_prefix(kind, prefix)
-        if cnt == 0:
-            context.user_data["awaiting"] = "confirm_create"
-            context.user_data["proposed_name"] = prefix
-            await update.message.reply_text(
-                f"В реестре нет записей на «{safe_md(prefix)}».\nДобавить новую запись с этим именем?",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=create_confirm_kbd()
-            )
-            return
-
-        await send_entity_choices(update, "add", prefix, page=0, kind=kind)
         return
-
-    # --- Ввод полного наименования для «Добавить юр/фл в реестр» ---
-    if context.user_data.get("menu") == "add_reg_name" and context.user_data.get("awaiting") == "new_entity_name":
-        if text == BTN_BACK:
-            context.user_data["menu"] = "add_pick_kind"
-            context.user_data.pop("awaiting", None)
-            await update.message.reply_text("Кого добавляем в реестр?", reply_markup=kind_menu_kbd())
-            return
-        # Здесь не return — пусть on_text_flow обработает awaiting="new_entity_name"
 
     # --- Главное меню (фолбэк) ---
     if text == BTN_INFO:
-        await info_block(update, context); return
+        await info_block(update, context)
+        return
     if text == BTN_ADD:
-        await add_entry_cmd(update, context); return
+        await add_entry_cmd(update, context)
+        return
     if text == BTN_EDIT:
-        await upd_entry_cmd(update, context); return
+        await upd_entry_cmd(update, context)
+        return
     if text == BTN_DELETE:
-        await del_entry_cmd(update, context); return
-
-    mode = context.user_data.get("mode")
-    if mode in {"upd", "del", "regdel"}:
-        prefix = text
-        await send_entity_choices(update, mode, prefix, page=0)
-        context.user_data["prefix"] = prefix
+        await del_entry_cmd(update, context)
         return
-
-    if context.user_data.get("mode") == "add":
-        kind = context.user_data.get("kind")
-        if not kind:
-            await update.message.reply_text("Сначала выберите тип: нажмите «Добавление» → ЮЛ/ФЛ.")
-            return
-        prefix = text
-        await send_entity_choices(update, "add", prefix, page=0, kind=kind)
-        context.user_data["prefix"] = prefix
+    if text == BTN_BROWSE:
+        context.user_data.clear()
+        await tree_start(update, context, "browse")
         return
-
-async def send_entity_choices(update_or_cb, mode: str, prefix: str, page: int, kind: str | None = None):
-    # Выдает список подходящих сущностей страницами по 10
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        args = []
-        where = "WHERE lower(name) LIKE lower(?)"
-        args.append(prefix + "%")
-        if kind:
-            where += " AND kind=?"
-            args.append(kind)
-        sql = f"SELECT id, name, kind FROM entity {where} ORDER BY lower(name);"
-        async with db.execute(sql, args) as cur:
-            rows = await cur.fetchall()
-    total = len(rows)
-    page_size = 10
-    pages = max(1, (total + page_size - 1) // page_size)
-    page = max(0, min(page, pages-1))
-    rows_page = rows[page*page_size:(page+1)*page_size]
-
-    buttons = []
-    for r in rows_page:
-        buttons.append([InlineKeyboardButton(fmt_entity_row(r), callback_data=f"pick:{mode}:{r['id']}")])
-
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("« Назад", callback_data=f"page:{mode}:{page-1}"))
-    if page < pages-1:
-        nav.append(InlineKeyboardButton("Вперёд »", callback_data=f"page:{mode}:{page+1}"))
-    if nav:
-        buttons.append(nav)
-
-    if mode == "add" and kind:
-        buttons.append([InlineKeyboardButton("➕ Нет в реестре — создать", callback_data=CB_ADD_NEW_ENTITY)])
-
-    caption = f"Найдено: {total}. Стр. {page+1}/{pages}"
-    if isinstance(update_or_cb, Update):
-        await update_or_cb.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await update_or_cb.edit_message_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
-
-async def cb_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed(update.effective_user.id): return
-    q = update.callback_query
-    await q.answer()
-    _, mode, page_str = q.data.split(":")
-    prefix = context.user_data.get("prefix", "")
-    kind = context.user_data.get("kind")
-    await send_entity_choices(q, mode, prefix, int(page_str), kind=kind)
-
-async def cb_pick_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed(update.effective_user.id): return
-    q = update.callback_query
-    await q.answer()
-    _, mode, id_str = q.data.split(":")
-    entity_id = int(id_str)
-    context.user_data["entity_id"] = entity_id
-
-    if mode == "add" or mode == "upd":
-        await q.edit_message_text("Введите дату окончания подписи (напр. 31.12.2025).")
-        context.user_data["awaiting"] = "expiry"
-        context.user_data["flow"] = mode
-    elif mode == "del":
-        await show_and_confirm_delete(q, entity_id)
-    elif mode == "regdel":
-        await show_and_confirm_regdelete(q, entity_id)
-
-async def cb_add_new_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed(update.effective_user.id): return
-    q = update.callback_query
-    await q.answer()
-    kind = context.user_data.get("kind")
-    prefix = context.user_data.get("prefix", "")
-    await q.edit_message_text(
-        f"Создание новой записи в реестре ({'ЮЛ' if kind=='org' else 'ФЛ'}).\n"
-        f"Введите *полное наименование* (сейчас в буфере «{safe_md(prefix)}»).",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    context.user_data["awaiting"] = "new_entity_name"
 
 async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает шаги ввода: имя новой сущности, дата, примечание."""
@@ -750,8 +984,7 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Глобальный "Назад" — всегда в главное меню
     if msg == BTN_BACK:
-        await context.bot.send_message(update.effective_chat.id, "Главное меню", reply_markup=main_menu_kbd())
-        ud.clear()
+        await _go_main(context, update.effective_chat.id)
         return
     if ud.get("awaiting") == "note" and msg in MENU_BTNS:
         await update.message.reply_text(
@@ -763,50 +996,20 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not awaiting:
         return  # обычный текст ловит on_text
 
-    # --- Подтверждение автосоздания новой сущности при нуле совпадений ---
-    if awaiting == "confirm_create":
-        if msg == BTN_CREATE_CONFIRM:
-            name = ud.get("proposed_name", "").strip()
-            kind = ud.get("kind", "org")
-            if not name:
-                await update.message.reply_text("Название пустое. Попробуйте снова «Добавить подпись».")
-                ud.clear()
-                return
-            async with aiosqlite.connect(DB_PATH) as db:
-                try:
-                    await db.execute("INSERT INTO entity(name, kind) VALUES (?,?)", (name, kind))
-                    await db.commit()
-                    async with db.execute("SELECT id FROM entity WHERE name=?", (name,)) as cur:
-                        row = await cur.fetchone()
-                        ud["entity_id"] = int(row[0])
-                except aiosqlite.IntegrityError:
-                    async with db.execute("SELECT id FROM entity WHERE name=?", (name,)) as cur:
-                        row = await cur.fetchone()
-                        ud["entity_id"] = int(row[0])
-            ud["awaiting"] = "expiry"
-            await update.message.reply_text(
-                "Ок. Теперь введите дату окончания подписи (например 31.12.2025).",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
-            return
-        elif msg in (BTN_CANCEL, BTN_BACK):
-            ud.pop("awaiting", None)
-            await update.message.reply_text(
-                "Введите первые буквы/наименование ещё раз.",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-            )
-            return
-        else:
-            # ждём именно кнопку подтверждения/отмены
-            return
-
     # --- Создание новой сущности в реестре ---
     if awaiting == "new_entity_name":
         name = msg
         kind = ud.get("kind", "org")
+        group_id = ud.get("group_id")
         async with aiosqlite.connect(DB_PATH) as db:
             try:
-                await db.execute("INSERT INTO entity(name, kind) VALUES (?,?)", (name, kind))
+                if group_id is not None:
+                    await db.execute(
+                        "INSERT INTO entity(name, kind, group_id) VALUES (?,?,?)",
+                        (name, kind, group_id)
+                    )
+                else:
+                    await db.execute("INSERT INTO entity(name, kind) VALUES (?,?)", (name, kind))
                 await db.commit()
             except aiosqlite.IntegrityError:
                 await update.message.reply_text("Такая сущность уже есть в реестре.")
@@ -817,7 +1020,18 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if ud.get("add_action") == "reg":
             ent_kind = "ЮЛ" if kind == "org" else "ФЛ"
-            await update.message.reply_text(f"✅ Добавлено в реестр: {ent_kind} {name}")
+            if group_id is not None:
+                group_row = await get_group(group_id)
+                if group_row:
+                    await update.message.reply_text(
+                        f"✅ Добавлено в реестр: {ent_kind} {name}\n"
+                        f"Организация: {safe_md(group_row['name'])}",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await update.message.reply_text(f"✅ Добавлено в реестр: {ent_kind} {name}")
+            else:
+                await update.message.reply_text(f"✅ Добавлено в реестр: {ent_kind} {name}")
             await _go_main(context, update.effective_chat.id)
             return
 
@@ -836,6 +1050,10 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(str(e))
             return
         ud["expiry"] = d
+        if ud.get("entity_kind") == "org":
+            ud.pop("awaiting", None)
+            await finalize_save(update, context, None)
+            return
         ud["awaiting"] = "note"
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(
@@ -980,14 +1198,13 @@ async def cb_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data or ""
     if data.startswith("info:"):
         await cb_info(update, context); return
-    if data == CB_ADD_KIND_ORG or data == CB_ADD_KIND_PERSON:
-        await cb_add_kind(update, context); return
-    if data == CB_ADD_NEW_ENTITY:
-        await cb_add_new_entity(update, context); return
-    if data.startswith("page:"):
-        await cb_pagination(update, context); return
-    if data.startswith("pick:"):
-        await cb_pick_entity(update, context); return
+    if data.startswith(TREE_CB_PREFIX):
+        parts = data.split("|", 3)
+        while len(parts) < 4:
+            parts.append("_")
+        _, mode, action, payload = parts
+        await tree_handle_callback(update, context, mode, action, payload)
+        return
     if data.startswith(CB_DEL_CONFIRM):
         await cb_del_confirm(update, context); return
     if data.startswith(CB_REGDEL_CONFIRM):
