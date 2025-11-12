@@ -39,31 +39,27 @@ DB_PATH = "data.db"
 # --- Reply-кнопки и подменю ---
 BTN_BACK = "⬅️ Назад"
 
-BTN_CREATE_CONFIRM = "✅ Добавить в реестр"
-BTN_CANCEL         = "✖️ Отмена"
+BTN_CREATE_CONFIRM = "Добавить в реестр"
+BTN_CANCEL         = "Отмена"
 
 # Кнопки главного меню
-BTN_INFO   = "ℹ️ Информация"
-BTN_ADD    = "➕ Добавление"
-BTN_EDIT   = "✏️ Изменение"
-BTN_DELETE = "🗑️ Удаление"
-
-# Подменю «Удаление»
-BTN_DELETE_SIGN = "🗑️ Подпись"
-BTN_DELETE_REG  = "📦 Из реестра"
+BTN_INFO  = "Информация"
+BTN_ADD   = "Добавление"
+BTN_EDIT  = "Изменение"
+BTN_DELETE= "Удаление"
 
 # Подменю «Информация»
-BTN_INFO_LAST10 = "📋 Ближайшие 10"
-BTN_INFO_LAST30 = "🗓️ Ближайшие 30"
-BTN_INFO_ALL    = "📚 Список всех"
+BTN_INFO_LAST10 = "Ближайшие 10"
+BTN_INFO_LAST30 = "Ближайшие 30"
+BTN_INFO_ALL = "Список всех"
 
 # Подменю «Добавление»
-BTN_ADD_SIGN = "🖊️ Подпись"
-BTN_ADD_REG  = "🏢 Юр/фл в реестр"
+BTN_ADD_SIGN = "Добавить подпись"
+BTN_ADD_REG  = "Добавить юр/фл в реестр"
 
 # Выбор типа субъекта
-BTN_KIND_ORG    = "🏢 Юр. лицо"
-BTN_KIND_PERSON = "👤 Физ. лицо"
+BTN_KIND_ORG    = "Юр. лицо"
+BTN_KIND_PERSON = "Физ. лицо"
 
 # Информация
 CB_INFO_LAST10 = "info:last10"
@@ -93,27 +89,26 @@ CB_REGDEL_PICK_PAGE = "regdel:pick_page"
 CB_REGDEL_CONFIRM = "regdel:confirm"
 
 
+# безопасный «невидимый» символ, который Телеграм принимает как непустой текст
+SAFE_EMPTY = "\u2063"  # Invisible Separator
+
 # набор всех «зарезервированных» названий кнопок-реплаев,
 # которые нельзя сохранять как примечание
 RESERVED_BTNS = {
     BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BACK,
     BTN_INFO_LAST10, BTN_INFO_LAST30, BTN_INFO_ALL,
     BTN_ADD_SIGN, BTN_ADD_REG, BTN_KIND_ORG, BTN_KIND_PERSON,
-    BTN_DELETE_SIGN, BTN_DELETE_REG,
     BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
-
-# Используется для проверки, что пользователь не нажимает кнопки меню
-# вместо ввода текста на определённых шагах.
-MENU_BTNS = RESERVED_BTNS
 
 # ====== HELPERS ======
 
 def main_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_INFO), KeyboardButton(BTN_ADD)],
-            [KeyboardButton(BTN_EDIT), KeyboardButton(BTN_DELETE)],
+            [KeyboardButton(BTN_INFO)],
+            [KeyboardButton(BTN_ADD), KeyboardButton(BTN_EDIT)],
+            [KeyboardButton(BTN_DELETE)],
         ],
         resize_keyboard=True
     )
@@ -122,22 +117,16 @@ def info_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_INFO_LAST10), KeyboardButton(BTN_INFO_LAST30)],
-            [KeyboardButton(BTN_INFO_ALL), KeyboardButton(BTN_BACK)],
+            [KeyboardButton(BTN_INFO_ALL)],
+            [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
 
 def add_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_ADD_SIGN), KeyboardButton(BTN_ADD_REG)],
-            [KeyboardButton(BTN_BACK)],
-        ], resize_keyboard=True
-    )
-
-def delete_menu_kbd() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(BTN_DELETE_SIGN), KeyboardButton(BTN_DELETE_REG)],
+            [KeyboardButton(BTN_ADD_SIGN)],
+            [KeyboardButton(BTN_ADD_REG)],
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
@@ -284,25 +273,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await ensure_subscriber(update.effective_chat.id)
     txt = (
-        "👋 *Привет!* Я бот мониторинга ЭЦП.\n\n"
-        "📘 *Что я умею*\n"
+        "Привет! Я бот мониторинга ЭЦП.\n\n"
         "• Веду реестр организаций и физлиц\n"
-        "• Храню срок действия подписи и примечания\n"
+        "• Храню срок действия подписи + примечание\n"
         "• Показываю ближайшие истечения\n"
         "• Напоминаю за 25/20/15/10/5 дней\n\n"
-        "Выберите нужный раздел с помощью кнопок ниже."
+        "Выберите действие кнопками ниже."
     )
-    await update.message.reply_text(
-        txt,
-        reply_markup=main_menu_kbd(),
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    await update.message.reply_text(txt, reply_markup=main_menu_kbd())
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(
-        "*Команды:*\n"
         "/start — меню\n"
         "/add — добавить запись подписи\n"
         "/update — изменить запись\n"
@@ -311,16 +294,15 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/all — список всех\n"
         "/next — ближайшие 10\n"
         "Подсказки работают кнопками после ввода первых букв.",
-        reply_markup=main_menu_kbd(),
-        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_kbd()
     )
 
 # ---- INFO BLOCK ----
 
 def info_inline_kbd():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Ближайшие 10", callback_data=CB_INFO_LAST10)],
-        [InlineKeyboardButton("📚 Список всех", callback_data=CB_INFO_ALL)],
+        [InlineKeyboardButton("Ближайшие 10", callback_data=CB_INFO_LAST10)],
+        [InlineKeyboardButton("Список всех", callback_data=CB_INFO_ALL)],
     ])
 
 async def info_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -430,32 +412,19 @@ async def upd_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Введите первые буквы названия и отправьте сообщением.\n"
                                     "Я пришлю список подходящих вариантов кнопками.")
 
-async def delete_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed(update.effective_user.id):
-        return
-    context.user_data.clear()
-    context.user_data["menu"] = "delete_menu"
-    await update.message.reply_text("Что нужно удалить?", reply_markup=delete_menu_kbd())
-
 async def del_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
     context.user_data["mode"] = "del"
-    await update.message.reply_text(
-        "Удаление записи подписи.\n"
-        "Введите первые буквы названия — пришлю список.",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-    )
+    await update.message.reply_text("Удаление записи подписи.\n"
+                                    "Введите первые буквы названия — пришлю список.")
 
 async def regdel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
     context.user_data["mode"] = "regdel"
-    await update.message.reply_text(
-        "Удаление из реестра (и связанных записей).\n"
-        "Введите первые буквы названия — пришлю список.",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
-    )
+    await update.message.reply_text("Удаление из реестра (и связанных записей).\n"
+                                    "Введите первые буквы названия — пришлю список.")
 
 async def add_pick_kind(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str):
     context.user_data["kind"] = kind
@@ -476,8 +445,6 @@ async def cb_add_kind(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting"):
         return
-    if context.user_data.pop("_skip_next_on_text", False):
-        return
     if not await is_allowed(update.effective_user.id):
         return
 
@@ -485,13 +452,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if text == BTN_BACK:
-        await _go_main(context, update.effective_chat.id, silent=True)
+        await _go_main(context, update.effective_chat.id)
         return
 
     # --- Подменю «Информация» ---
     if context.user_data.get("menu") == "info":
         if text == BTN_BACK:
-            await _go_main(context, update.effective_chat.id, silent=True)
+            context.user_data.pop("menu", None)
+            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
             return
         if text == BTN_INFO_LAST10:
             await update.message.reply_text(await build_lastN_text(10), parse_mode=ParseMode.MARKDOWN)
@@ -508,7 +476,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Подменю «Добавление» (ОТДЕЛЬНЫЙ блок, не внутри «Информация») ---
     if context.user_data.get("menu") == "add_menu":
         if text == BTN_BACK:
-            await _go_main(context, update.effective_chat.id, silent=True)
+            context.user_data.clear()
+            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
             return
         if text == BTN_ADD_SIGN:
             context.user_data["add_action"] = "sign"
@@ -519,18 +488,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["add_action"] = "reg"
             context.user_data["menu"] = "add_pick_kind"
             await update.message.reply_text("Кого добавить в реестр?", reply_markup=kind_menu_kbd())
-            return
-        return
-
-    if context.user_data.get("menu") == "delete_menu":
-        if text == BTN_BACK:
-            await _go_main(context, update.effective_chat.id, silent=True)
-            return
-        if text == BTN_DELETE_SIGN:
-            await del_entry_cmd(update, context)
-            return
-        if text == BTN_DELETE_REG:
-            await regdel_cmd(update, context)
             return
         return
 
@@ -608,7 +565,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == BTN_EDIT:
         await upd_entry_cmd(update, context); return
     if text == BTN_DELETE:
-        await delete_menu(update, context); return
+        await del_entry_cmd(update, context); return
 
     mode = context.user_data.get("mode")
     if mode in {"upd", "del", "regdel"}:
@@ -717,7 +674,8 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Глобальный "Назад" — всегда в главное меню
     if msg == BTN_BACK:
-        await _go_main(context, update.effective_chat.id, silent=True, skip_next_on_text=True)
+        await context.bot.send_message(update.effective_chat.id, "Главное меню", reply_markup=main_menu_kbd())
+        ud.clear()
         return
     if ud.get("awaiting") == "note" and msg in MENU_BTNS:
         await update.message.reply_text(
@@ -735,7 +693,7 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name = ud.get("proposed_name", "").strip()
             kind = ud.get("kind", "org")
             if not name:
-                await update.message.reply_text(f"Название пустое. Попробуйте снова «{BTN_ADD_SIGN}».")
+                await update.message.reply_text("Название пустое. Попробуйте снова «Добавить подпись».")
                 ud.clear()
                 return
             async with aiosqlite.connect(DB_PATH) as db:
@@ -783,11 +741,8 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if ud.get("add_action") == "reg":
             ent_kind = "ЮЛ" if kind == "org" else "ФЛ"
-            await update.message.reply_text(
-                f"✅ Добавлено в реестр: {ent_kind} {name}",
-                reply_markup=main_menu_kbd(),
-            )
-            await _go_main(context, update.effective_chat.id, prompt=None, skip_next_on_text=True)
+            await update.message.reply_text(f"✅ Добавлено в реестр: {ent_kind} {name}")
+            await _go_main(context, update.effective_chat.id)
             return
 
         ud["awaiting"] = "expiry"
@@ -865,12 +820,8 @@ async def finalize_save(update_or_cb, context: ContextTypes.DEFAULT_TYPE, note: 
 
     if isinstance(update_or_cb, Update) and update_or_cb.message:
         # если пришло обычным сообщением — ответим и сразу вернём главное меню
-        await update_or_cb.message.reply_text(
-            txt,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_kbd(),
-        )
-        await _go_main(context, update_or_cb.effective_chat.id, prompt=None, skip_next_on_text=True)
+        await update_or_cb.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+        await _go_main(context, update_or_cb.effective_chat.id)
     else:
         # если это был callback — сначала правим исходное сообщение
         await update_or_cb.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN)
@@ -894,10 +845,10 @@ async def show_and_confirm_delete(cbq, entity_id: int):
     if not r or not r["expiry"]:
         await cbq.edit_message_text("У этой записи нет активной подписи.")
         return
-    txt = "🗑️ Удалить подпись?\n" + fmt_signature_row(r)
+    txt = "Удалить подпись?\n" + fmt_signature_row(r)
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"{CB_DEL_CONFIRM}:{entity_id}")],
-        [InlineKeyboardButton("✖️ Отмена", callback_data="noop")]
+        [InlineKeyboardButton("Удалить", callback_data=f"{CB_DEL_CONFIRM}:{entity_id}")],
+        [InlineKeyboardButton("Отмена", callback_data="noop")]
     ])
     await cbq.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
@@ -905,7 +856,7 @@ async def cb_del_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     q = update.callback_query
     await q.answer()
-    _, entity_id_str = q.data.rsplit(":", 1)
+    _, entity_id_str = q.data.split(":")
     eid = int(entity_id_str)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE signature SET active=0, updated_at=datetime('now') WHERE entity_id=? AND active=1", (eid,))
@@ -924,10 +875,10 @@ async def show_and_confirm_regdelete(cbq, entity_id: int):
     if not e:
         await cbq.edit_message_text("Не найдено.")
         return
-    txt = f"📦 Удалить из реестра *вместе со всеми записями*?\n{fmt_entity_row(e)}"
+    txt = f"Удалить из реестра *вместе со всеми записями*?\n{fmt_entity_row(e)}"
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📦 Удалить из реестра", callback_data=f"{CB_REGDEL_CONFIRM}:{entity_id}")],
-        [InlineKeyboardButton("✖️ Отмена", callback_data="noop")]
+        [InlineKeyboardButton("Удалить из реестра", callback_data=f"{CB_REGDEL_CONFIRM}:{entity_id}")],
+        [InlineKeyboardButton("Отмена", callback_data="noop")]
     ])
     await cbq.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
@@ -935,7 +886,7 @@ async def cb_regdel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     q = update.callback_query
     await q.answer()
-    _, entity_id_str = q.data.rsplit(":", 1)
+    _, entity_id_str = q.data.split(":")
     eid = int(entity_id_str)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
@@ -973,10 +924,11 @@ async def cb_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---- SCHEDULER ----
 
-async def send_reminders(application: Application):
-    days_list = [25, 20, 15, 10, 5, 0]  # 0 = сегодня (можно убрать)
-    today = date.today()
-    targets = { (today + timedelta(days=d)).isoformat(): d for d in days_list }
+async def send_reminders(application: Application, today_override: date | None = None):
+    """Шлёт напоминания. Можно подменить 'сегодня' через today_override для тестов."""
+    days_list = [25, 20, 15, 10, 5, 0]  # 0 = сегодня
+    today = today_override or date.today()
+    targets = {(today + timedelta(days=d)).isoformat(): d for d in days_list}
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -1000,13 +952,13 @@ async def send_reminders(application: Application):
         diff = (exp - today).days
         if diff not in days_list:  # safety
             continue
-        kind = "ЮЛ" if r["kind"]=="org" else "ФЛ"
+        kind = "ЮЛ" if r["kind"] == "org" else "ФЛ"
         if diff > 0:
             header = f"⏰ Напоминание: через {diff} дн."
         elif diff == 0:
             header = "⚠️ Истекает сегодня!"
         else:
-            header = f"❗ Просрочено на {-diff} дн."  # на всякий случай
+            header = f"❗ Просрочено на {-diff} дн."
 
         msg = f"{header}\n[{kind}] {r['name']}\nСрок: {exp.strftime('%d.%m.%Y')}"
         if r["note"]:
@@ -1026,6 +978,32 @@ def schedule_daily(application: Application):
         lambda ctx: asyncio.create_task(send_reminders(application)),
         time=datetime.now().replace(hour=h, minute=m, second=0, microsecond=0).timetz()
     )
+
+async def test_reminder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручной запуск рассылки.
+    Использование:
+      /test_reminder           — как есть, на реальную сегодняшнюю дату
+      /test_reminder 5         — проверить как будто сегодня +5 дней (сработают записи на 0/5/10/15/20/25 от этой базы)
+      /test_reminder -2        — сдвиг назад на 2 дня (для отладки 'сегодня' и 'просрочено')
+    """
+    if not await is_allowed(update.effective_user.id):
+        return
+
+    # читаем опциональный сдвиг, по умолчанию 0
+    offset = 0
+    if context.args:
+        try:
+            offset = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("Аргумент должен быть целым числом (например, /test_reminder 5).")
+            return
+
+    today_override = date.today() + timedelta(days=offset) if offset != 0 else None
+
+    await update.message.reply_text("⏳ Запускаю проверку напоминаний…")
+    await send_reminders(context.application, today_override=today_override)
+    await update.message.reply_text("✅ Готово. Если нашлись подходящие записи, подписчики получили уведомления.")
+
 
 async def _dbg_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1049,28 +1027,10 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("DBG CB error: %s", e)
 
-async def _go_main(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    prompt: str | None = "Выберите действие кнопками ниже.",
-    *,
-    silent: bool = False,
-    skip_next_on_text: bool = False,
-):
-    """Возвращает пользователя в главное меню и очищает состояние."""
-    keyboard = main_menu_kbd()
-
+async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Тихо возвращает пользователя в главное меню, без лишнего текста."""
+    await context.bot.send_message(chat_id, SAFE_EMPTY, reply_markup=main_menu_kbd())
     context.user_data.clear()
-    if skip_next_on_text:
-        context.user_data["_skip_next_on_text"] = True
-
-    if not silent:
-        await context.bot.send_message(chat_id, "Главное меню", reply_markup=keyboard)
-
-    if prompt is None:
-        return
-
-    await context.bot.send_message(chat_id, prompt, reply_markup=keyboard)
 
 
 # ====== MAIN ======
@@ -1090,6 +1050,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("update", upd_entry_cmd))
     app.add_handler(CommandHandler("delete", del_entry_cmd))
     app.add_handler(CommandHandler("registry_delete", regdel_cmd))
+    app.add_handler(CommandHandler("test_reminder", test_reminder_cmd))
 
     app.add_handler(CallbackQueryHandler(cb_router))
 
