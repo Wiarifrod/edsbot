@@ -1003,15 +1003,9 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("DBG CB error: %s", e)
 
-async def _go_main(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    *,
-    silent: bool = False,
-    skip_next_on_text: bool = False,
-    prompt: str | None = "Главное меню",
-):
+async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     """Возвращает пользователя в главное меню и очищает состояние."""
+    await context.bot.send_message(chat_id, "Главное меню", reply_markup=main_menu_kbd())
     context.user_data.clear()
     if skip_next_on_text:
         context.user_data["_skip_next_on_text"] = True
