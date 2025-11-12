@@ -39,31 +39,31 @@ DB_PATH = "data.db"
 # --- Reply-кнопки и подменю ---
 BTN_BACK = "⬅️ Назад"
 
-BTN_CREATE_CONFIRM = "Добавить в реестр"
-BTN_CANCEL         = "Отмена"
+BTN_CREATE_CONFIRM = "✅ Добавить в реестр"
+BTN_CANCEL         = "✖️ Отмена"
 
 # Кнопки главного меню
-BTN_INFO  = "Информация"
-BTN_ADD   = "Добавление"
-BTN_EDIT  = "Изменение"
-BTN_DELETE= "Удаление"
+BTN_INFO   = "ℹ️ Информация"
+BTN_ADD    = "➕ Добавление"
+BTN_EDIT   = "✏️ Изменение"
+BTN_DELETE = "🗑️ Удаление"
 
 # Подменю «Удаление»
-BTN_DELETE_SIGN = "Удалить подпись"
-BTN_DELETE_REG  = "Удалить из реестра"
+BTN_DELETE_SIGN = "🗑️ Подпись"
+BTN_DELETE_REG  = "📦 Из реестра"
 
 # Подменю «Информация»
-BTN_INFO_LAST10 = "Ближайшие 10"
-BTN_INFO_LAST30 = "Ближайшие 30"
-BTN_INFO_ALL = "Список всех"
+BTN_INFO_LAST10 = "📋 Ближайшие 10"
+BTN_INFO_LAST30 = "🗓️ Ближайшие 30"
+BTN_INFO_ALL    = "📚 Список всех"
 
 # Подменю «Добавление»
-BTN_ADD_SIGN = "Добавить подпись"
-BTN_ADD_REG  = "Добавить юр/фл в реестр"
+BTN_ADD_SIGN = "🖊️ Подпись"
+BTN_ADD_REG  = "🏢 Юр/фл в реестр"
 
 # Выбор типа субъекта
-BTN_KIND_ORG    = "Юр. лицо"
-BTN_KIND_PERSON = "Физ. лицо"
+BTN_KIND_ORG    = "🏢 Юр. лицо"
+BTN_KIND_PERSON = "👤 Физ. лицо"
 
 # Информация
 CB_INFO_LAST10 = "info:last10"
@@ -112,9 +112,8 @@ MENU_BTNS = RESERVED_BTNS
 def main_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_INFO)],
-            [KeyboardButton(BTN_ADD), KeyboardButton(BTN_EDIT)],
-            [KeyboardButton(BTN_DELETE)],
+            [KeyboardButton(BTN_INFO), KeyboardButton(BTN_ADD)],
+            [KeyboardButton(BTN_EDIT), KeyboardButton(BTN_DELETE)],
         ],
         resize_keyboard=True
     )
@@ -123,16 +122,14 @@ def info_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_INFO_LAST10), KeyboardButton(BTN_INFO_LAST30)],
-            [KeyboardButton(BTN_INFO_ALL)],
-            [KeyboardButton(BTN_BACK)],
+            [KeyboardButton(BTN_INFO_ALL), KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
 
 def add_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_ADD_SIGN)],
-            [KeyboardButton(BTN_ADD_REG)],
+            [KeyboardButton(BTN_ADD_SIGN), KeyboardButton(BTN_ADD_REG)],
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
@@ -140,8 +137,7 @@ def add_menu_kbd() -> ReplyKeyboardMarkup:
 def delete_menu_kbd() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_DELETE_SIGN)],
-            [KeyboardButton(BTN_DELETE_REG)],
+            [KeyboardButton(BTN_DELETE_SIGN), KeyboardButton(BTN_DELETE_REG)],
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
@@ -288,19 +284,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await ensure_subscriber(update.effective_chat.id)
     txt = (
-        "Привет! Я бот мониторинга ЭЦП.\n\n"
+        "👋 *Привет!* Я бот мониторинга ЭЦП.\n\n"
+        "📘 *Что я умею*\n"
         "• Веду реестр организаций и физлиц\n"
-        "• Храню срок действия подписи + примечание\n"
+        "• Храню срок действия подписи и примечания\n"
         "• Показываю ближайшие истечения\n"
         "• Напоминаю за 25/20/15/10/5 дней\n\n"
-        "Выберите действие кнопками ниже."
+        "Выберите нужный раздел с помощью кнопок ниже."
     )
-    await update.message.reply_text(txt, reply_markup=main_menu_kbd())
+    await update.message.reply_text(
+        txt,
+        reply_markup=main_menu_kbd(),
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(
+        "*Команды:*\n"
         "/start — меню\n"
         "/add — добавить запись подписи\n"
         "/update — изменить запись\n"
@@ -309,15 +311,16 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/all — список всех\n"
         "/next — ближайшие 10\n"
         "Подсказки работают кнопками после ввода первых букв.",
-        reply_markup=main_menu_kbd()
+        reply_markup=main_menu_kbd(),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 # ---- INFO BLOCK ----
 
 def info_inline_kbd():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Ближайшие 10", callback_data=CB_INFO_LAST10)],
-        [InlineKeyboardButton("Список всех", callback_data=CB_INFO_ALL)],
+        [InlineKeyboardButton("📋 Ближайшие 10", callback_data=CB_INFO_LAST10)],
+        [InlineKeyboardButton("📚 Список всех", callback_data=CB_INFO_ALL)],
     ])
 
 async def info_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -732,7 +735,7 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name = ud.get("proposed_name", "").strip()
             kind = ud.get("kind", "org")
             if not name:
-                await update.message.reply_text("Название пустое. Попробуйте снова «Добавить подпись».")
+                await update.message.reply_text(f"Название пустое. Попробуйте снова «{BTN_ADD_SIGN}».")
                 ud.clear()
                 return
             async with aiosqlite.connect(DB_PATH) as db:
@@ -891,10 +894,10 @@ async def show_and_confirm_delete(cbq, entity_id: int):
     if not r or not r["expiry"]:
         await cbq.edit_message_text("У этой записи нет активной подписи.")
         return
-    txt = "Удалить подпись?\n" + fmt_signature_row(r)
+    txt = "🗑️ Удалить подпись?\n" + fmt_signature_row(r)
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Удалить", callback_data=f"{CB_DEL_CONFIRM}:{entity_id}")],
-        [InlineKeyboardButton("Отмена", callback_data="noop")]
+        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"{CB_DEL_CONFIRM}:{entity_id}")],
+        [InlineKeyboardButton("✖️ Отмена", callback_data="noop")]
     ])
     await cbq.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
@@ -921,10 +924,10 @@ async def show_and_confirm_regdelete(cbq, entity_id: int):
     if not e:
         await cbq.edit_message_text("Не найдено.")
         return
-    txt = f"Удалить из реестра *вместе со всеми записями*?\n{fmt_entity_row(e)}"
+    txt = f"📦 Удалить из реестра *вместе со всеми записями*?\n{fmt_entity_row(e)}"
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Удалить из реестра", callback_data=f"{CB_REGDEL_CONFIRM}:{entity_id}")],
-        [InlineKeyboardButton("Отмена", callback_data="noop")]
+        [InlineKeyboardButton("📦 Удалить из реестра", callback_data=f"{CB_REGDEL_CONFIRM}:{entity_id}")],
+        [InlineKeyboardButton("✖️ Отмена", callback_data="noop")]
     ])
     await cbq.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
