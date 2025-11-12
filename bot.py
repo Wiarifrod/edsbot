@@ -98,6 +98,10 @@ RESERVED_BTNS = {
     BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
 
+# Используется для проверки, что пользователь не нажимает кнопки меню
+# вместо ввода текста на определённых шагах.
+MENU_BTNS = RESERVED_BTNS
+
 # ====== HELPERS ======
 
 def main_menu_kbd() -> ReplyKeyboardMarkup:
@@ -1003,7 +1007,14 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("DBG CB error: %s", e)
 
-async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+async def _go_main(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    prompt: str | None = "Выберите действие кнопками ниже.",
+    *,
+    silent: bool = False,
+    skip_next_on_text: bool = False,
+):
     """Возвращает пользователя в главное меню и очищает состояние."""
     await context.bot.send_message(chat_id, "Главное меню", reply_markup=main_menu_kbd())
     context.user_data.clear()
