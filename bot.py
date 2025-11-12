@@ -48,6 +48,10 @@ BTN_ADD   = "Добавление"
 BTN_EDIT  = "Изменение"
 BTN_DELETE= "Удаление"
 
+# Подменю «Удаление»
+BTN_DELETE_SIGN = "Удалить подпись"
+BTN_DELETE_REG  = "Удалить из реестра"
+
 # Подменю «Информация»
 BTN_INFO_LAST10 = "Ближайшие 10"
 BTN_INFO_LAST30 = "Ближайшие 30"
@@ -95,6 +99,7 @@ RESERVED_BTNS = {
     BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BACK,
     BTN_INFO_LAST10, BTN_INFO_LAST30, BTN_INFO_ALL,
     BTN_ADD_SIGN, BTN_ADD_REG, BTN_KIND_ORG, BTN_KIND_PERSON,
+    BTN_DELETE_SIGN, BTN_DELETE_REG,
     BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
 
@@ -128,6 +133,15 @@ def add_menu_kbd() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(BTN_ADD_SIGN)],
             [KeyboardButton(BTN_ADD_REG)],
+            [KeyboardButton(BTN_BACK)],
+        ], resize_keyboard=True
+    )
+
+def delete_menu_kbd() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_DELETE_SIGN)],
+            [KeyboardButton(BTN_DELETE_REG)],
             [KeyboardButton(BTN_BACK)],
         ], resize_keyboard=True
     )
@@ -413,19 +427,32 @@ async def upd_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Введите первые буквы названия и отправьте сообщением.\n"
                                     "Я пришлю список подходящих вариантов кнопками.")
 
+async def delete_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed(update.effective_user.id):
+        return
+    context.user_data.clear()
+    context.user_data["menu"] = "delete_menu"
+    await update.message.reply_text("Что нужно удалить?", reply_markup=delete_menu_kbd())
+
 async def del_entry_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
     context.user_data["mode"] = "del"
-    await update.message.reply_text("Удаление записи подписи.\n"
-                                    "Введите первые буквы названия — пришлю список.")
+    await update.message.reply_text(
+        "Удаление записи подписи.\n"
+        "Введите первые буквы названия — пришлю список.",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
+    )
 
 async def regdel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     context.user_data.clear()
     context.user_data["mode"] = "regdel"
-    await update.message.reply_text("Удаление из реестра (и связанных записей).\n"
-                                    "Введите первые буквы названия — пришлю список.")
+    await update.message.reply_text(
+        "Удаление из реестра (и связанных записей).\n"
+        "Введите первые буквы названия — пришлю список.",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(BTN_BACK)]], resize_keyboard=True)
+    )
 
 async def add_pick_kind(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str):
     context.user_data["kind"] = kind
@@ -489,6 +516,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["add_action"] = "reg"
             context.user_data["menu"] = "add_pick_kind"
             await update.message.reply_text("Кого добавить в реестр?", reply_markup=kind_menu_kbd())
+            return
+        return
+
+    if context.user_data.get("menu") == "delete_menu":
+        if text == BTN_BACK:
+            await _go_main(context, update.effective_chat.id, silent=True)
+            return
+        if text == BTN_DELETE_SIGN:
+            await del_entry_cmd(update, context)
+            return
+        if text == BTN_DELETE_REG:
+            await regdel_cmd(update, context)
             return
         return
 
@@ -566,7 +605,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == BTN_EDIT:
         await upd_entry_cmd(update, context); return
     if text == BTN_DELETE:
-        await del_entry_cmd(update, context); return
+        await delete_menu(update, context); return
 
     mode = context.user_data.get("mode")
     if mode in {"upd", "del", "regdel"}:
@@ -863,7 +902,7 @@ async def cb_del_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     q = update.callback_query
     await q.answer()
-    _, entity_id_str = q.data.split(":")
+    _, entity_id_str = q.data.rsplit(":", 1)
     eid = int(entity_id_str)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE signature SET active=0, updated_at=datetime('now') WHERE entity_id=? AND active=1", (eid,))
@@ -893,7 +932,7 @@ async def cb_regdel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update.effective_user.id): return
     q = update.callback_query
     await q.answer()
-    _, entity_id_str = q.data.split(":")
+    _, entity_id_str = q.data.rsplit(":", 1)
     eid = int(entity_id_str)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
@@ -1016,15 +1055,19 @@ async def _go_main(
     skip_next_on_text: bool = False,
 ):
     """Возвращает пользователя в главное меню и очищает состояние."""
-    await context.bot.send_message(chat_id, "Главное меню", reply_markup=main_menu_kbd())
+    keyboard = main_menu_kbd()
+
     context.user_data.clear()
     if skip_next_on_text:
         context.user_data["_skip_next_on_text"] = True
 
-    if prompt is None or silent:
+    if not silent:
+        await context.bot.send_message(chat_id, "Главное меню", reply_markup=keyboard)
+
+    if prompt is None:
         return
 
-    msg = await context.bot.send_message(chat_id, prompt, reply_markup=main_menu_kbd())
+    await context.bot.send_message(chat_id, prompt, reply_markup=keyboard)
 
 
 # ====== MAIN ======
