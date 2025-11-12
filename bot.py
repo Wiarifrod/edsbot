@@ -1021,15 +1021,10 @@ async def _go_main(
     if skip_next_on_text:
         context.user_data["_skip_next_on_text"] = True
 
-    if prompt is None:
+    if prompt is None or silent:
         return
 
     msg = await context.bot.send_message(chat_id, prompt, reply_markup=main_menu_kbd())
-    if silent:
-        try:
-            await context.bot.delete_message(chat_id, msg.message_id)
-        except Exception:
-            pass
 
 
 # ====== MAIN ======
