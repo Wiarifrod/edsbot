@@ -89,12 +89,16 @@ CB_REGDEL_PICK_PAGE = "regdel:pick_page"
 CB_REGDEL_CONFIRM = "regdel:confirm"
 
 
-MENU_BTNS = {
-    BTN_BACK, BTN_CREATE_CONFIRM, BTN_CANCEL,
-    BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE,
+# безопасный «невидимый» символ, который Телеграм принимает как непустой текст
+SAFE_EMPTY = "\u2063"  # Invisible Separator
+
+# набор всех «зарезервированных» названий кнопок-реплаев,
+# которые нельзя сохранять как примечание
+RESERVED_BTNS = {
+    BTN_INFO, BTN_ADD, BTN_EDIT, BTN_DELETE, BTN_BACK,
     BTN_INFO_LAST10, BTN_INFO_LAST30, BTN_INFO_ALL,
-    BTN_ADD_SIGN, BTN_ADD_REG,
-    BTN_KIND_ORG, BTN_KIND_PERSON,
+    BTN_ADD_SIGN, BTN_ADD_REG, BTN_KIND_ORG, BTN_KIND_PERSON,
+    BTN_CREATE_CONFIRM, BTN_CANCEL,
 }
 
 # ====== HELPERS ======
@@ -771,6 +775,11 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Примечание ---
     if awaiting == "note":
+        # если пользователь ткнул любую кнопку из реплаев — трактуем как «Пропустить»
+        if msg in RESERVED_BTNS:
+            await finalize_save(update, context, None)
+            return
+        # обычный текст — сохраняем как примечание
         note = msg if msg else None
         await finalize_save(update, context, note)
         return
@@ -993,9 +1002,9 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     """Тихо возвращает пользователя в главное меню, без лишнего текста."""
-    # U+2060 WORD JOINER — невидимый, но не пустой символ
-    await context.bot.send_message(chat_id, "\u2060", reply_markup=main_menu_kbd())
+    await context.bot.send_message(chat_id, SAFE_EMPTY, reply_markup=main_menu_kbd())
     context.user_data.clear()
+
 
 # ====== MAIN ======
 
