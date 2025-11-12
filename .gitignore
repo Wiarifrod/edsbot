@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Виртуальное окружение
+venv/
+
+# PyCharm и прочее
+.idea/
