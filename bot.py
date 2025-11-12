@@ -89,9 +89,6 @@ CB_REGDEL_PICK_PAGE = "regdel:pick_page"
 CB_REGDEL_CONFIRM = "regdel:confirm"
 
 
-# безопасный «невидимый» символ, который Телеграм принимает как непустой текст
-SAFE_EMPTY = "\u2063"  # Invisible Separator
-
 # набор всех «зарезервированных» названий кнопок-реплаев,
 # которые нельзя сохранять как примечание
 RESERVED_BTNS = {
@@ -445,6 +442,8 @@ async def cb_add_kind(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting"):
         return
+    if context.user_data.pop("_skip_next_on_text", False):
+        return
     if not await is_allowed(update.effective_user.id):
         return
 
@@ -452,14 +451,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if text == BTN_BACK:
-        await _go_main(context, update.effective_chat.id)
+        await _go_main(context, update.effective_chat.id, silent=True)
         return
 
     # --- Подменю «Информация» ---
     if context.user_data.get("menu") == "info":
         if text == BTN_BACK:
-            context.user_data.pop("menu", None)
-            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
+            await _go_main(context, update.effective_chat.id, silent=True)
             return
         if text == BTN_INFO_LAST10:
             await update.message.reply_text(await build_lastN_text(10), parse_mode=ParseMode.MARKDOWN)
@@ -476,8 +474,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Подменю «Добавление» (ОТДЕЛЬНЫЙ блок, не внутри «Информация») ---
     if context.user_data.get("menu") == "add_menu":
         if text == BTN_BACK:
-            context.user_data.clear()
-            await update.message.reply_text("Главное меню", reply_markup=main_menu_kbd())
+            await _go_main(context, update.effective_chat.id, silent=True)
             return
         if text == BTN_ADD_SIGN:
             context.user_data["add_action"] = "sign"
@@ -674,8 +671,7 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Глобальный "Назад" — всегда в главное меню
     if msg == BTN_BACK:
-        await context.bot.send_message(update.effective_chat.id, "Главное меню", reply_markup=main_menu_kbd())
-        ud.clear()
+        await _go_main(context, update.effective_chat.id, silent=True, skip_next_on_text=True)
         return
     if ud.get("awaiting") == "note" and msg in MENU_BTNS:
         await update.message.reply_text(
@@ -741,8 +737,11 @@ async def on_text_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if ud.get("add_action") == "reg":
             ent_kind = "ЮЛ" if kind == "org" else "ФЛ"
-            await update.message.reply_text(f"✅ Добавлено в реестр: {ent_kind} {name}")
-            await _go_main(context, update.effective_chat.id)
+            await update.message.reply_text(
+                f"✅ Добавлено в реестр: {ent_kind} {name}",
+                reply_markup=main_menu_kbd(),
+            )
+            await _go_main(context, update.effective_chat.id, prompt=None, skip_next_on_text=True)
             return
 
         ud["awaiting"] = "expiry"
@@ -820,8 +819,12 @@ async def finalize_save(update_or_cb, context: ContextTypes.DEFAULT_TYPE, note: 
 
     if isinstance(update_or_cb, Update) and update_or_cb.message:
         # если пришло обычным сообщением — ответим и сразу вернём главное меню
-        await update_or_cb.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
-        await _go_main(context, update_or_cb.effective_chat.id)
+        await update_or_cb.message.reply_text(
+            txt,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_kbd(),
+        )
+        await _go_main(context, update_or_cb.effective_chat.id, prompt=None, skip_next_on_text=True)
     else:
         # если это был callback — сначала правим исходное сообщение
         await update_or_cb.edit_message_text(txt, parse_mode=ParseMode.MARKDOWN)
@@ -1000,10 +1003,28 @@ async def _dbg_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("DBG CB error: %s", e)
 
-async def _go_main(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Тихо возвращает пользователя в главное меню, без лишнего текста."""
-    await context.bot.send_message(chat_id, SAFE_EMPTY, reply_markup=main_menu_kbd())
+async def _go_main(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    *,
+    silent: bool = False,
+    skip_next_on_text: bool = False,
+    prompt: str | None = "Главное меню",
+):
+    """Возвращает пользователя в главное меню и очищает состояние."""
     context.user_data.clear()
+    if skip_next_on_text:
+        context.user_data["_skip_next_on_text"] = True
+
+    if prompt is None:
+        return
+
+    msg = await context.bot.send_message(chat_id, prompt, reply_markup=main_menu_kbd())
+    if silent:
+        try:
+            await context.bot.delete_message(chat_id, msg.message_id)
+        except Exception:
+            pass
 
 
 # ====== MAIN ======
